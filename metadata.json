@@ -1,0 +1,5 @@
+{
+  "name": "Nonprofit OS",
+  "description": "Core platform for nonprofit management including compliance, donors, bookkeeping, and board management.",
+  "requestFramePermissions": []
+}

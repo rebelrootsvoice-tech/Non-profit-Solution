@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the Nonprofit OS platform.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "staff", "board", "volunteer"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "A donor, grantor, or other contact.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "type": { "type": "string", "enum": ["donor", "grantor", "sponsor", "volunteer"] },
+        "totalDonated": { "type": "number" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "firstName", "lastName", "type", "createdAt"]
+    },
+    "Donation": {
+      "title": "Donation",
+      "description": "A donation record, often synced from Zeffy.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "contactId": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "source": { "type": "string", "enum": ["zeffy", "manual", "check"] },
+        "fund": { "type": "string" },
+        "campaign": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "contactId", "amount", "date", "source", "status", "createdAt"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "A task for a user, often generated automatically.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["todo", "in-progress", "done"] },
+        "module": { "type": "string", "enum": ["compliance", "donors", "bookkeeping", "board"] },
+        "relatedRecordId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "status", "module", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles and roles."
+    },
+    "/contacts/{contactId}": {
+      "schema": { "$ref": "#/entities/Contact" },
+      "description": "Master contact records (donors, grantors, etc.)."
+    },
+    "/donations/{donationId}": {
+      "schema": { "$ref": "#/entities/Donation" },
+      "description": "Donation records."
+    },
+    "/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Tasks across all modules."
+    }
+  }
+}
