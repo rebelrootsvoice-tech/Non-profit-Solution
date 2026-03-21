@@ -38,7 +38,11 @@
       "properties": {
         "id": { "type": "string" },
         "contactId": { "type": "string" },
+        "donorName": { "type": "string" },
         "amount": { "type": "number" },
+        "donationType": { "type": "string", "enum": ["monetary", "in-kind"] },
+        "itemDescription": { "type": "string" },
+        "receiptSent": { "type": "boolean" },
         "date": { "type": "string", "format": "date-time" },
         "source": { "type": "string", "enum": ["zeffy", "manual", "check"] },
         "fund": { "type": "string" },
@@ -46,7 +50,7 @@
         "status": { "type": "string", "enum": ["pending", "completed", "failed"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "contactId", "amount", "date", "source", "status", "createdAt"]
+      "required": ["id", "contactId", "amount", "donationType", "date", "source", "status", "createdAt"]
     },
     "Task": {
       "title": "Task",
@@ -64,6 +68,95 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "title", "status", "module", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A bookkeeping transaction (income or expense).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["income", "expense"] },
+        "category": { "type": "string", "enum": ["donation", "grant", "operational", "program", "other", "uncategorized"] },
+        "status": { "type": "string", "enum": ["pending", "reconciled"] },
+        "receiptUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "date", "description", "amount", "type", "category", "status", "createdAt"]
+    },
+    "ComplianceItem": {
+      "title": "Compliance Item",
+      "description": "A compliance requirement, filing, or policy review.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["filing", "policy", "report", "other"] },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "submitted", "approved", "overdue"] },
+        "assignedTo": { "type": "string" },
+        "documentUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "type", "dueDate", "status", "createdAt"]
+    },
+    "BoardMember": {
+      "title": "Board Member",
+      "description": "A board member profile, including candidates.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["candidate", "active", "former"] },
+        "resumeUrl": { "type": "string" },
+        "specialties": { "type": "array", "items": { "type": "string" } },
+        "experiences": { "type": "string" },
+        "onboardingProgress": { "type": "number" },
+        "joinedDate": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "status", "createdAt"]
+    },
+    "BoardMeetingMinute": {
+      "title": "Board Meeting Minute",
+      "description": "Minutes from board meetings.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "source": { "type": "string", "enum": ["manual", "zoom_ai"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "date", "title", "content", "source", "createdAt"]
+    },
+    "BoardProject": {
+      "title": "Board Project",
+      "description": "Projects and proposals managed by board members.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "leadMemberId": { "type": "string" },
+        "phase": { "type": "string", "enum": ["planning", "active", "completed", "failed"] },
+        "team": { "type": "array", "items": { "type": "string" } },
+        "budget": { "type": "number" },
+        "resources": { "type": "string" },
+        "supplies": { "type": "string" },
+        "proposalsPassed": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "phase", "createdAt"]
     }
   },
   "firestore": {
@@ -82,6 +175,26 @@
     "/tasks/{taskId}": {
       "schema": { "$ref": "#/entities/Task" },
       "description": "Tasks across all modules."
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Bookkeeping transactions."
+    },
+    "/compliance/{complianceId}": {
+      "schema": { "$ref": "#/entities/ComplianceItem" },
+      "description": "Compliance requirements, filings, and policy reviews."
+    },
+    "/boardMembers/{memberId}": {
+      "schema": { "$ref": "#/entities/BoardMember" },
+      "description": "Board members and candidates."
+    },
+    "/boardMinutes/{minuteId}": {
+      "schema": { "$ref": "#/entities/BoardMeetingMinute" },
+      "description": "Board meeting minutes."
+    },
+    "/boardProjects/{projectId}": {
+      "schema": { "$ref": "#/entities/BoardProject" },
+      "description": "Board projects and proposals."
     }
   }
 }

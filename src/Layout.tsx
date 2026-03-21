@@ -7,7 +7,8 @@ import {
   FileText, 
   DollarSign, 
   LogOut,
-  ShieldCheck
+  ShieldCheck,
+  BarChart3
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -20,8 +21,9 @@ export function Layout() {
     { to: '/donors', icon: Users, label: 'Donors & Grants' },
     { to: '/bookkeeping', icon: DollarSign, label: 'Bookkeeping' },
     { to: '/compliance', icon: ShieldCheck, label: 'Compliance' },
-    { to: '/board', icon: FileText, label: 'Board Management' },
+    { to: '/board', icon: FileText, label: 'Board Governance' },
     { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
+    { to: '/reports', icon: BarChart3, label: 'Reports' },
   ];
 
   return (
@@ -29,7 +31,7 @@ export function Layout() {
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-stone-200 flex flex-col">
         <div className="p-6 border-b border-stone-200">
-          <h1 className="text-xl font-semibold tracking-tight text-emerald-700">Nonprofit OS</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-emerald-700">Non-profit Solutions</h1>
           <p className="text-xs text-stone-500 mt-1">Role: {role}</p>
         </div>
         
