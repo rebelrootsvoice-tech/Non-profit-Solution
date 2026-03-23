@@ -18,6 +18,7 @@ export function Tasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -29,8 +30,8 @@ export function Tasks() {
       });
       setTasks(tasksData);
       setLoading(false);
-    }, (error) => {
-      console.error("Error fetching tasks:", error);
+    }, (err) => {
+      console.error("Error fetching tasks:", err);
       setLoading(false);
     });
 
@@ -42,6 +43,7 @@ export function Tasks() {
     const formData = new FormData(e.currentTarget);
     
     try {
+      setError(null);
       const newDocRef = doc(collection(db, 'tasks'));
       await setDoc(newDocRef, {
         id: newDocRef.id,
@@ -55,20 +57,24 @@ export function Tasks() {
         createdAt: new Date().toISOString()
       });
       setShowAddModal(false);
-    } catch (error) {
-      console.error("Error adding task:", error);
-      alert("Failed to add task. Check permissions.");
+    } catch (err) {
+      console.error("Error adding task:", err);
+      setError("Failed to add task. Check permissions.");
+      setTimeout(() => setError(null), 5000);
     }
   };
 
   const toggleTaskStatus = async (taskId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'done' ? 'todo' : 'done';
     try {
+      setError(null);
       await updateDoc(doc(db, 'tasks', taskId), {
         status: newStatus
       });
-    } catch (error) {
-      console.error("Error updating task:", error);
+    } catch (err) {
+      console.error("Error updating task:", err);
+      setError("Failed to update task status.");
+      setTimeout(() => setError(null), 5000);
     }
   };
 
@@ -92,6 +98,12 @@ export function Tasks() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-md bg-red-50 p-4 border border-red-200">
+          <h3 className="text-sm font-medium text-red-800">{error}</h3>
+        </div>
+      )}
 
       <div className="bg-white shadow-sm ring-1 ring-stone-200 sm:rounded-xl">
         <ul role="list" className="divide-y divide-stone-200">

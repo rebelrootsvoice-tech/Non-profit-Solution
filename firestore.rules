@@ -20,6 +20,10 @@ service cloud.firestore {
       return isAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff');
     }
     
+    function isBoardStaffOrAdmin() {
+      return isStaffOrAdmin() || (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'board');
+    }
+    
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
@@ -68,6 +72,14 @@ service cloud.firestore {
              (!('receiptSent' in data) || data.receiptSent == null || data.receiptSent is bool) &&
              data.source in ['zeffy', 'manual', 'check'] &&
              data.status in ['pending', 'completed', 'failed'];
+    }
+
+    function isValidVolunteerLog(data) {
+      return hasOnlyAllowedFields(['id', 'contactId', 'volunteerName', 'hours', 'date', 'activity', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.contactId is string && data.contactId.size() > 0 && data.contactId.size() < 100 &&
+             data.hours is number && data.hours >= 0 &&
+             data.date is string && data.date.size() > 0 && data.date.size() < 50;
     }
 
     function isValidTask(data) {
@@ -137,6 +149,13 @@ service cloud.firestore {
              (!('proposalsPassed' in data) || data.proposalsPassed == null || data.proposalsPassed is list);
     }
 
+    function isValidOrganizationSettings(data) {
+      return hasOnlyAllowedFields(['fiscalYearEnd', 'states', 'updatedAt']) &&
+             data.fiscalYearEnd is string && data.fiscalYearEnd.matches('^\\d{2}-\\d{2}$') &&
+             data.states is list &&
+             data.updatedAt is string;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -153,16 +172,23 @@ service cloud.firestore {
     }
 
     match /contacts/{contactId} {
-      allow read: if isStaffOrAdmin();
+      allow read: if isBoardStaffOrAdmin();
       allow create: if isStaffOrAdmin() && isValidContact(request.resource.data);
       allow update: if isStaffOrAdmin() && isValidContact(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /donations/{donationId} {
-      allow read: if isStaffOrAdmin();
+      allow read: if isBoardStaffOrAdmin();
       allow create: if isStaffOrAdmin() && isValidDonation(request.resource.data);
       allow update: if isStaffOrAdmin() && isValidDonation(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /volunteerHours/{logId} {
+      allow read: if isBoardStaffOrAdmin();
+      allow create: if isStaffOrAdmin() && isValidVolunteerLog(request.resource.data);
+      allow update: if isStaffOrAdmin() && isValidVolunteerLog(request.resource.data);
       allow delete: if isAdmin();
     }
 
@@ -174,14 +200,14 @@ service cloud.firestore {
     }
 
     match /transactions/{transactionId} {
-      allow read: if isStaffOrAdmin();
+      allow read: if isBoardStaffOrAdmin();
       allow create: if isStaffOrAdmin() && isValidTransaction(request.resource.data);
       allow update: if isStaffOrAdmin() && isValidTransaction(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /compliance/{complianceId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() || resource.data.status == 'approved';
       allow create: if isStaffOrAdmin() && isValidComplianceItem(request.resource.data);
       allow update: if isStaffOrAdmin() && isValidComplianceItem(request.resource.data);
       allow delete: if isAdmin();
@@ -189,23 +215,28 @@ service cloud.firestore {
 
     match /boardMembers/{memberId} {
       allow read: if isAuthenticated();
-      allow create: if isStaffOrAdmin() && isValidBoardMember(request.resource.data);
-      allow update: if isStaffOrAdmin() && isValidBoardMember(request.resource.data);
+      allow create: if isBoardStaffOrAdmin() && isValidBoardMember(request.resource.data);
+      allow update: if isBoardStaffOrAdmin() && isValidBoardMember(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /boardMinutes/{minuteId} {
       allow read: if isAuthenticated();
-      allow create: if isStaffOrAdmin() && isValidBoardMeetingMinute(request.resource.data);
-      allow update: if isStaffOrAdmin() && isValidBoardMeetingMinute(request.resource.data);
+      allow create: if isBoardStaffOrAdmin() && isValidBoardMeetingMinute(request.resource.data);
+      allow update: if isBoardStaffOrAdmin() && isValidBoardMeetingMinute(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /boardProjects/{projectId} {
       allow read: if isAuthenticated();
-      allow create: if isStaffOrAdmin() && isValidBoardProject(request.resource.data);
-      allow update: if isStaffOrAdmin() && isValidBoardProject(request.resource.data);
+      allow create: if isBoardStaffOrAdmin() && isValidBoardProject(request.resource.data);
+      allow update: if isBoardStaffOrAdmin() && isValidBoardProject(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    match /settings/org {
+      allow read: if isAuthenticated();
+      allow write: if isStaffOrAdmin() && isValidOrganizationSettings(request.resource.data);
     }
   }
 }

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { useAuth } from './AuthContext';
-import { Plus, Search, DollarSign, ArrowUpRight, ArrowDownRight, CheckCircle2, Circle, FileText, Trash2, Camera, RefreshCw, AlertTriangle, Paperclip } from 'lucide-react';
+import { Plus, Search, DollarSign, ArrowUpRight, ArrowDownRight, CheckCircle2, Circle, FileText, Trash2, Camera, RefreshCw, AlertTriangle, Paperclip, ChevronDown, Sparkles } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { FileUpload } from './components/FileUpload';
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
 interface Transaction {
   id: string;
@@ -46,6 +48,11 @@ export function Bookkeeping() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [scannedData, setScannedData] = useState<Partial<Transaction> | null>(null);
   const [receiptUrl, setReceiptUrl] = useState<string>('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isMagicScanning, setIsMagicScanning] = useState(false);
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (role === 'volunteer') {
@@ -64,7 +71,7 @@ export function Bookkeeping() {
       setTransactions(txData);
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching transactions:", error);
+      handleFirestoreError(error, OperationType.GET, 'transactions');
       setLoading(false);
     });
 
@@ -126,9 +133,10 @@ export function Bookkeeping() {
         setShowAddModal(true);
       };
       reader.readAsDataURL(file);
-    } catch (error) {
-      console.error("Error scanning receipt:", error);
-      alert("Failed to scan receipt.");
+    } catch (err) {
+      console.error("Error scanning receipt:", err);
+      setError("Failed to scan receipt.");
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsScanning(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -160,25 +168,93 @@ export function Bookkeeping() {
         ];
 
         for (const tx of mockTransactions) {
-          const newDocRef = doc(collection(db, 'transactions'));
-          await setDoc(newDocRef, {
-            id: newDocRef.id,
-            ...tx,
-            receiptUrl: '',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            createdBy: user?.uid || 'system'
-          });
+          try {
+            const newDocRef = doc(collection(db, 'transactions'));
+            await setDoc(newDocRef, {
+              id: newDocRef.id,
+              ...tx,
+              receiptUrl: '',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              createdBy: user?.uid || 'system'
+            });
+          } catch (err) {
+            handleFirestoreError(err, OperationType.CREATE, 'transactions');
+          }
         }
-        alert("Bank sync complete! 2 new transactions imported.");
-      } catch (error) {
-        console.error("Bank sync error:", error);
+        setSuccess("Bank sync complete! 2 new transactions imported.");
+        setTimeout(() => setSuccess(null), 5000);
+      } catch (err) {
+        console.error("Bank sync error:", err);
+        setError("Failed to sync bank transactions.");
+        setTimeout(() => setError(null), 5000);
       } finally {
         setIsSyncing(false);
       }
     }, 2000);
   };
 
+  const handleMagicScan = async () => {
+    if (!selectedFile) return;
+
+    setIsMagicScanning(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Data = (reader.result as string).split(',')[1];
+        
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  data: base64Data,
+                  mimeType: selectedFile.type,
+                },
+              },
+              {
+                text: 'Extract the transaction details from this receipt. Return a JSON object with: amount (number), date (YYYY-MM-DD), description (string, vendor name), type (always "expense"), and category (one of: "donation", "grant", "operational", "program", "other").',
+              },
+            ],
+          },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                amount: { type: Type.NUMBER },
+                date: { type: Type.STRING },
+                description: { type: Type.STRING },
+                type: { type: Type.STRING },
+                category: { type: Type.STRING },
+              },
+              required: ['amount', 'date', 'description', 'type', 'category'],
+            },
+          },
+        });
+
+        const data = JSON.parse(response.text);
+        
+        setScannedData({
+          amount: data.amount,
+          date: data.date,
+          description: data.description,
+          type: data.type as 'income' | 'expense',
+          category: data.category as Transaction['category']
+        });
+      };
+      reader.readAsDataURL(selectedFile);
+    } catch (err) {
+      console.error("Error scanning receipt:", err);
+      setError("Failed to scan receipt.");
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setIsMagicScanning(false);
+    }
+  };
   const handleAddTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -209,9 +285,10 @@ export function Bookkeeping() {
       setShowAddModal(false);
       setScannedData(null);
       setReceiptUrl('');
-    } catch (error) {
-      console.error("Error adding transaction:", error);
-      alert("Failed to add transaction. Check permissions.");
+      setSuccess("Transaction added successfully.");
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'transactions');
     }
   };
 
@@ -222,9 +299,10 @@ export function Bookkeeping() {
         category: newCategory,
         updatedAt: new Date().toISOString()
       });
-    } catch (error) {
-      console.error("Error updating category:", error);
-      alert("Failed to update category.");
+      setSuccess("Category updated.");
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `transactions/${id}`);
     }
   };
 
@@ -235,19 +313,18 @@ export function Bookkeeping() {
         status: tx.status === 'pending' ? 'reconciled' : 'pending',
         updatedAt: new Date().toISOString()
       });
-    } catch (error) {
-      console.error("Error updating status:", error);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `transactions/${tx.id}`);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this transaction?')) {
-      try {
-        await deleteDoc(doc(db, 'transactions', id));
-      } catch (error) {
-        console.error("Error deleting transaction:", error);
-        alert("Failed to delete. Only admins can delete transactions.");
-      }
+    try {
+      await deleteDoc(doc(db, 'transactions', id));
+      setSuccess("Transaction deleted.");
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `transactions/${id}`);
     }
   };
 
@@ -431,24 +508,30 @@ export function Bookkeeping() {
                     </div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-stone-500 capitalize">
-                    {tx.category === 'uncategorized' ? (
+                    <div className="relative group">
                       <select
                         value={tx.category}
                         onChange={(e) => handleUpdateCategory(tx.id, e.target.value as Transaction['category'])}
-                        className="block w-full max-w-[140px] rounded-md border-0 py-1 text-stone-900 ring-1 ring-inset ring-amber-300 focus:ring-2 focus:ring-amber-600 sm:text-xs sm:leading-6 bg-amber-50"
+                        className={twMerge(
+                          clsx(
+                            "block w-full max-w-[140px] rounded-md border-0 py-1 pl-2 pr-8 text-stone-900 ring-1 ring-inset focus:ring-2 sm:text-xs sm:leading-6 appearance-none cursor-pointer transition-colors",
+                            tx.category === 'uncategorized' 
+                              ? "ring-amber-300 focus:ring-amber-600 bg-amber-50 hover:bg-amber-100" 
+                              : "ring-stone-200 focus:ring-stone-500 bg-stone-50 hover:bg-stone-100"
+                          )
+                        )}
                       >
-                        <option value="uncategorized" disabled>Select Category</option>
+                        <option value="uncategorized">Uncategorized</option>
                         <option value="donation">Donation</option>
                         <option value="grant">Grant</option>
                         <option value="operational">Operational</option>
                         <option value="program">Program</option>
                         <option value="other">Other</option>
                       </select>
-                    ) : (
-                      <span className="inline-flex items-center rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-stone-600 ring-1 ring-inset ring-stone-500/10">
-                        {tx.category}
-                      </span>
-                    )}
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+                        <ChevronDown className="h-3 w-3 text-stone-400" />
+                      </div>
+                    </div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-center">
                     {tx.receiptUrl ? (
@@ -579,7 +662,20 @@ export function Bookkeeping() {
                   label="Receipt / Invoice" 
                   defaultUrl={receiptUrl} 
                   onUploadComplete={setReceiptUrl} 
+                  onFileSelect={setSelectedFile}
+                  onUploadingChange={setIsUploadingReceipt}
                 />
+                {selectedFile && !scannedData && (
+                  <button
+                    type="button"
+                    onClick={handleMagicScan}
+                    disabled={isMagicScanning}
+                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    <Sparkles className={twMerge(clsx("h-4 w-4", isMagicScanning && "animate-pulse"))} />
+                    {isMagicScanning ? 'Analyzing Receipt...' : 'Magic Scan with AI'}
+                  </button>
+                )}
               </div>
 
               <div className="mt-6 flex justify-end gap-3">
@@ -592,9 +688,10 @@ export function Bookkeeping() {
                 </button>
                 <button
                   type="submit"
-                  className="rounded-md bg-stone-900 px-3 py-2 text-sm font-semibold text-white hover:bg-stone-800"
+                  disabled={isUploadingReceipt}
+                  className="rounded-md bg-stone-900 px-3 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save Transaction
+                  {isUploadingReceipt ? 'Uploading...' : 'Save Transaction'}
                 </button>
               </div>
             </form>

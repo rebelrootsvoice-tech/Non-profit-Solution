@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { db } from './firebase';
+import { db, OperationType, handleFirestoreError } from './firebase';
 import { collection, onSnapshot, query, doc, setDoc, orderBy } from 'firebase/firestore';
 import { 
   Users, 
@@ -72,7 +72,10 @@ export function Board() {
   const [selectedMinute, setSelectedMinute] = useState<BoardMeetingMinute | null>(null);
   const [editingMember, setEditingMember] = useState<BoardMember | null>(null);
   const [resumeUrl, setResumeUrl] = useState<string>('');
+  const [isUploading, setIsUploading] = useState(false);
   const [isSyncingZoom, setIsSyncingZoom] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (editingMember) {
@@ -83,19 +86,52 @@ export function Board() {
   }, [editingMember]);
 
   useEffect(() => {
-    const unsubMembers = onSnapshot(query(collection(db, 'boardMembers')), (snapshot) => {
-      setMembers(snapshot.docs.map(doc => doc.data() as BoardMember));
-    });
+    let membersLoaded = false;
+    let minutesLoaded = false;
+    let projectsLoaded = false;
+
+    const checkLoading = () => {
+      if (membersLoaded && minutesLoaded && projectsLoaded) {
+        setLoading(false);
+      }
+    };
+
+    const unsubMembers = onSnapshot(
+      query(collection(db, 'boardMembers')), 
+      (snapshot) => {
+        setMembers(snapshot.docs.map(doc => doc.data() as BoardMember));
+        membersLoaded = true;
+        checkLoading();
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, 'boardMembers');
+      }
+    );
     
-    const unsubMinutes = onSnapshot(query(collection(db, 'boardMinutes'), orderBy('date', 'desc')), (snapshot) => {
-      setMinutes(snapshot.docs.map(doc => doc.data() as BoardMeetingMinute));
-    });
+    const unsubMinutes = onSnapshot(
+      query(collection(db, 'boardMinutes'), orderBy('date', 'desc')), 
+      (snapshot) => {
+        setMinutes(snapshot.docs.map(doc => doc.data() as BoardMeetingMinute));
+        minutesLoaded = true;
+        checkLoading();
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, 'boardMinutes');
+      }
+    );
 
-    const unsubProjects = onSnapshot(query(collection(db, 'boardProjects')), (snapshot) => {
-      setProjects(snapshot.docs.map(doc => doc.data() as BoardProject));
-    });
+    const unsubProjects = onSnapshot(
+      query(collection(db, 'boardProjects')), 
+      (snapshot) => {
+        setProjects(snapshot.docs.map(doc => doc.data() as BoardProject));
+        projectsLoaded = true;
+        checkLoading();
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, 'boardProjects');
+      }
+    );
 
-    setLoading(false);
     return () => {
       unsubMembers();
       unsubMinutes();
@@ -126,8 +162,7 @@ export function Board() {
       setShowMemberModal(false);
       setEditingMember(null);
     } catch (error) {
-      console.error("Error adding member:", error);
-      alert("Failed to add member.");
+      handleFirestoreError(error, editingMember ? OperationType.UPDATE : OperationType.CREATE, 'boardMembers');
     }
   };
 
@@ -147,8 +182,7 @@ export function Board() {
       });
       setShowMinuteModal(false);
     } catch (error) {
-      console.error("Error adding minute:", error);
-      alert("Failed to add minute.");
+      handleFirestoreError(error, OperationType.CREATE, 'boardMinutes');
     }
   };
 
@@ -175,13 +209,14 @@ export function Board() {
       });
       setShowProjectModal(false);
     } catch (error) {
-      console.error("Error adding project:", error);
-      alert("Failed to add project.");
+      handleFirestoreError(error, OperationType.CREATE, 'boardProjects');
     }
   };
 
   const handleSyncZoomMinutes = async () => {
     setIsSyncingZoom(true);
+    setError(null);
+    setSuccess(null);
     try {
       const response = await fetch('/api/webhooks/zoom/pending');
       if (!response.ok) throw new Error('Failed to fetch pending minutes');
@@ -190,27 +225,34 @@ export function Board() {
       if (data.minutes && data.minutes.length > 0) {
         let addedCount = 0;
         for (const minute of data.minutes) {
-          const newRef = doc(collection(db, 'boardMinutes'));
-          await setDoc(newRef, {
-            id: newRef.id,
-            date: minute.date || minute.receivedAt || new Date().toISOString(),
-            title: minute.title || 'Zoom Meeting Minutes',
-            content: minute.content || JSON.stringify(minute, null, 2),
-            source: 'zoom_ai',
-            createdAt: new Date().toISOString()
-          });
-          addedCount++;
+          try {
+            const newRef = doc(collection(db, 'boardMinutes'));
+            await setDoc(newRef, {
+              id: newRef.id,
+              date: minute.date || minute.receivedAt || new Date().toISOString(),
+              title: minute.title || 'Zoom Meeting Minutes',
+              content: minute.content || JSON.stringify(minute, null, 2),
+              source: 'zoom_ai',
+              createdAt: new Date().toISOString()
+            });
+            addedCount++;
+          } catch (err) {
+            handleFirestoreError(err, OperationType.CREATE, 'boardMinutes');
+          }
         }
         
         // Clear pending minutes after successful sync
         await fetch('/api/webhooks/zoom/pending', { method: 'DELETE' });
-        alert(`Successfully synced ${addedCount} meeting minute(s) from Zoom.`);
+        setSuccess(`Successfully synced ${addedCount} meeting minute(s) from Zoom.`);
+        setTimeout(() => setSuccess(null), 5000);
       } else {
-        alert('No new meeting minutes found from Zoom.');
+        setSuccess('No new meeting minutes found from Zoom.');
+        setTimeout(() => setSuccess(null), 5000);
       }
-    } catch (error) {
-      console.error('Error syncing Zoom minutes:', error);
-      alert('Failed to sync Zoom minutes. Please try again.');
+    } catch (err) {
+      console.error('Error syncing Zoom minutes:', err);
+      setError('Failed to sync Zoom minutes. Please try again.');
+      setTimeout(() => setError(null), 5000);
     } finally {
       setIsSyncingZoom(false);
     }
@@ -561,12 +603,19 @@ export function Board() {
                           label="Resume (PDF, DOCX)" 
                           defaultUrl={resumeUrl} 
                           onUploadComplete={setResumeUrl} 
+                          onUploadingChange={setIsUploading}
                         />
                       </div>
                     </div>
                   </div>
                   <div className="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
-                    <button type="submit" className="inline-flex w-full justify-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 sm:col-start-2">Save</button>
+                    <button 
+                      type="submit" 
+                      disabled={isUploading}
+                      className="inline-flex w-full justify-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 sm:col-start-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isUploading ? 'Uploading...' : 'Save'}
+                    </button>
                     <button type="button" onClick={() => { setShowMemberModal(false); setEditingMember(null); }} className="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-stone-900 shadow-sm ring-1 ring-inset ring-stone-300 hover:bg-stone-50 sm:col-start-1 sm:mt-0">Cancel</button>
                   </div>
                 </form>

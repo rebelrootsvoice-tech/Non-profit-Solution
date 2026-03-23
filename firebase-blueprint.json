@@ -157,9 +157,64 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "title", "phase", "createdAt"]
+    },
+    "VolunteerLog": {
+      "title": "Volunteer Log",
+      "description": "A record of volunteer hours logged.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "contactId": { "type": "string" },
+        "volunteerName": { "type": "string" },
+        "hours": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "activity": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "contactId", "hours", "date", "createdAt"]
+    },
+    "OrganizationSettings": {
+      "title": "Organization Settings",
+      "description": "Global settings for the organization.",
+      "type": "object",
+      "properties": {
+        "fiscalYearEnd": { "type": "string", "description": "MM-DD format" },
+        "states": { "type": "array", "items": { "type": "string" }, "description": "List of states the org operates in" },
+        "ein": { "type": "string" },
+        "uei": { "type": "string" },
+        "samRenewalDate": { "type": "string", "format": "date" },
+        "hasUBI": { "type": "boolean" },
+        "receivesGovtFunds": { "type": "boolean" },
+        "readiness": {
+          "type": "object",
+          "properties": {
+            "irsDeterminationLetter": { "type": "string" },
+            "articlesOfIncorporation": { "type": "string" },
+            "bylaws": { "type": "string" },
+            "prior990s": { "type": "string" },
+            "payrollSystemConfirmed": { "type": "boolean" },
+            "sosStanding": { "type": "string" },
+            "charitablePermit": { "type": "string" },
+            "salesTaxExemption": { "type": "string" },
+            "coiPolicy": { "type": "boolean" },
+            "whistleblowerPolicy": { "type": "boolean" },
+            "retentionPolicy": { "type": "boolean" },
+            "boardMinutes": { "type": "string" },
+            "procurementPolicy": { "type": "boolean" },
+            "timeEffortTracking": { "type": "boolean" },
+            "indirectCostRate": { "type": "string" }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fiscalYearEnd", "states"]
     }
   },
   "firestore": {
+    "/settings/org": {
+      "schema": { "$ref": "#/entities/OrganizationSettings" },
+      "description": "Global organization settings."
+    },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "User profiles and roles."
@@ -195,6 +250,10 @@
     "/boardProjects/{projectId}": {
       "schema": { "$ref": "#/entities/BoardProject" },
       "description": "Board projects and proposals."
+    },
+    "/volunteerHours/{logId}": {
+      "schema": { "$ref": "#/entities/VolunteerLog" },
+      "description": "Volunteer hour logs."
     }
   }
 }

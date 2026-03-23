@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { Users, CheckSquare, FileText, DollarSign, ShieldCheck, Clock } from 'lucide-react';
 import { collection, query, onSnapshot, where, orderBy, limit } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format, subMonths, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
 
@@ -42,19 +42,27 @@ export function Dashboard() {
     if (role === 'admin' || role === 'staff') {
       contactsUnsub = onSnapshot(query(collection(db, 'contacts'), where('type', '==', 'donor')), (snapshot) => {
         setStats(s => ({ ...s, donors: snapshot.size }));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'contacts');
       });
 
       volunteerUnsub = onSnapshot(query(collection(db, 'contacts'), where('type', '==', 'volunteer')), (snapshot) => {
         const totalHours = snapshot.docs.reduce((acc, doc) => acc + (doc.data().hoursLogged || 0), 0);
         setStats(s => ({ ...s, volunteerHours: totalHours }));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'contacts');
       });
 
       txUnsub = onSnapshot(query(collection(db, 'transactions'), where('status', '==', 'pending')), (snapshot) => {
         setStats(s => ({ ...s, unreconciled: snapshot.size }));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'transactions');
       });
 
       donationsUnsub = onSnapshot(query(collection(db, 'donations'), orderBy('createdAt', 'desc'), limit(5)), (snapshot) => {
         setRecentDonations(snapshot.docs.map(doc => doc.data() as Donation));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'donations');
       });
 
       // Fetch data for the trend chart
@@ -81,17 +89,23 @@ export function Dashboard() {
         });
 
         setChartData(last6Months);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'donations');
       });
     }
 
     // Listen to Pending Tasks
     const tasksUnsub = onSnapshot(query(collection(db, 'tasks'), where('status', '!=', 'done')), (snapshot) => {
       setStats(s => ({ ...s, tasks: snapshot.size }));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'tasks');
     });
 
     // Listen to Compliance Alerts
     complianceUnsub = onSnapshot(query(collection(db, 'compliance'), where('status', 'in', ['pending', 'overdue'])), (snapshot) => {
       setStats(s => ({ ...s, compliance: snapshot.size }));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'compliance');
     });
 
     return () => {

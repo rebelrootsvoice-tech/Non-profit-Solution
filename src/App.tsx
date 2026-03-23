@@ -15,6 +15,7 @@ import { Bookkeeping } from './Bookkeeping';
 import { Compliance } from './Compliance';
 import { Board } from './Board';
 import { Reports } from './Reports';
+import { PublicInspection } from './PublicInspection';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -36,6 +37,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/public-inspection" element={<PublicInspection />} />
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<Dashboard />} />
             <Route path="donors" element={<Contacts />} />

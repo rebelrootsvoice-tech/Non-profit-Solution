@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, doc, setDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { collection, query, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { useAuth } from './AuthContext';
-import { Search, Plus, Mail, Phone, Tag, DollarSign, Gift, Clock } from 'lucide-react';
+import { Search, Plus, Mail, Phone, Tag, DollarSign, Gift, Clock, Settings, CheckCircle, RefreshCw } from 'lucide-react';
 
 interface Contact {
   id: string;
@@ -18,6 +18,167 @@ interface Contact {
   hoursLogged?: number;
 }
 
+function DonorAutomations({ contacts }: { contacts: Contact[] }) {
+  const [settings, setSettings] = useState({
+    thankYouEmails: true,
+    quarterlyUpdates: false,
+    thankYouTemplate: 'Dear {firstName},\n\nThank you for your generous donation of {amount}. Your support makes our work possible.\n\nSincerely,\nThe Team',
+    quarterlyTemplate: 'Dear {firstName},\n\nHere is what we accomplished this quarter thanks to your support...\n\nSincerely,\nThe Team'
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [sendingQuarterly, setSendingQuarterly] = useState(false);
+  const [quarterlySent, setQuarterlySent] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'automations'), (docSnap) => {
+      if (docSnap.exists()) {
+        setSettings(docSnap.data() as any);
+      }
+    });
+    return unsub;
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'automations'), settings);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSendQuarterly = async () => {
+    if (!confirm('Are you sure you want to send the quarterly update to all donors?')) return;
+    setSendingQuarterly(true);
+    try {
+      const donors = contacts.filter(c => c.type === 'donor' && c.email);
+      let sentCount = 0;
+      for (const donor of donors) {
+        let template = settings.quarterlyTemplate || 'Dear {firstName},\n\nHere is what we accomplished this quarter thanks to your support...\n\nSincerely,\nThe Team';
+        template = template.replace(/{firstName}/g, donor.firstName)
+                           .replace(/{lastName}/g, donor.lastName);
+        
+        const response = await fetch('/api/emails/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: donor.email,
+            subject: 'Quarterly Impact Update',
+            text: template
+          })
+        });
+        if (response.ok) sentCount++;
+      }
+      setQuarterlySent(true);
+      setTimeout(() => setQuarterlySent(false), 5000);
+      alert(`Quarterly update sent to ${sentCount} donors.`);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to send quarterly updates.');
+    } finally {
+      setSendingQuarterly(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 max-w-4xl">
+      <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6">
+        <h4 className="text-lg font-medium text-stone-900 mb-6 flex items-center gap-2">
+          <Mail className="h-5 w-5 text-stone-400" />
+          Automated Thank You Emails
+        </h4>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h5 className="text-sm font-medium text-stone-900">Enable Automatic Thank You Emails</h5>
+              <p className="text-sm text-stone-500">Send an email immediately after a donation is recorded.</p>
+            </div>
+            <button
+              onClick={() => setSettings(s => ({ ...s, thankYouEmails: !s.thankYouEmails }))}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${settings.thankYouEmails ? 'bg-emerald-600' : 'bg-stone-200'}`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${settings.thankYouEmails ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </div>
+          {settings.thankYouEmails && (
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-2">Email Template</label>
+              <textarea
+                rows={5}
+                value={settings.thankYouTemplate}
+                onChange={e => setSettings(s => ({ ...s, thankYouTemplate: e.target.value }))}
+                className="block w-full rounded-md border-stone-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 sm:text-sm"
+              />
+              <p className="mt-2 text-xs text-stone-500">Available variables: {'{firstName}'}, {'{lastName}'}, {'{amount}'}, {'{date}'}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6">
+        <h4 className="text-lg font-medium text-stone-900 mb-6 flex items-center gap-2">
+          <Clock className="h-5 w-5 text-stone-400" />
+          Quarterly Impact Updates
+        </h4>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h5 className="text-sm font-medium text-stone-900">Enable Quarterly Updates</h5>
+              <p className="text-sm text-stone-500">Automatically send impact reports to active donors every quarter.</p>
+            </div>
+            <button
+              onClick={() => setSettings(s => ({ ...s, quarterlyUpdates: !s.quarterlyUpdates }))}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 ${settings.quarterlyUpdates ? 'bg-emerald-600' : 'bg-stone-200'}`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${settings.quarterlyUpdates ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </div>
+          {settings.quarterlyUpdates && (
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-2">Email Template</label>
+              <textarea
+                rows={5}
+                value={settings.quarterlyTemplate}
+                onChange={e => setSettings(s => ({ ...s, quarterlyTemplate: e.target.value }))}
+                className="block w-full rounded-md border-stone-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 sm:text-sm"
+              />
+              <p className="mt-2 text-xs text-stone-500">Available variables: {'{firstName}'}, {'{lastName}'}</p>
+              
+              <div className="mt-4 pt-4 border-t border-stone-100 flex justify-end">
+                <button
+                  onClick={handleSendQuarterly}
+                  disabled={sendingQuarterly}
+                  className="inline-flex items-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  {sendingQuarterly ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                  Send Quarterly Update Now
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex justify-end items-center gap-4">
+        {saved && <span className="text-sm text-emerald-600 flex items-center gap-1"><CheckCircle className="h-4 w-4" /> Saved!</span>}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="inline-flex items-center rounded-md bg-stone-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-stone-800 disabled:opacity-50"
+        >
+          {saving ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Save Automations
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Contacts() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,7 +189,10 @@ export function Contacts() {
   const [donationType, setDonationType] = useState<'monetary' | 'in-kind'>('monetary');
   const [contactTypeFilter, setContactTypeFilter] = useState('All Types');
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState<'directory' | 'automations'>('directory');
   const [newContactType, setNewContactType] = useState('donor');
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const { role } = useAuth();
 
   useEffect(() => {
@@ -46,7 +210,7 @@ export function Contacts() {
       setContacts(contactsData);
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching contacts:", error);
+      handleFirestoreError(error, OperationType.GET, 'contacts');
       setLoading(false);
     });
 
@@ -88,9 +252,10 @@ export function Contacts() {
       });
       setShowAddModal(false);
       setNewContactType('donor');
-    } catch (error) {
-      console.error("Error adding contact:", error);
-      alert("Failed to add contact. Check permissions.");
+      setSuccess("Contact added successfully.");
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'contacts');
     }
   };
 
@@ -129,16 +294,52 @@ export function Contacts() {
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
-      if (sendReceipt) {
-        alert(`Thank you email and tax receipt automatically sent to ${selectedContact.email || 'the donor'}.`);
+      // Check automation settings
+      const automationsDoc = await getDoc(doc(db, 'settings', 'automations'));
+      const automations = automationsDoc.exists() ? automationsDoc.data() : null;
+
+      let emailSent = false;
+      if (automations?.thankYouEmails && selectedContact.email) {
+        let template = automations.thankYouTemplate || 'Dear {firstName},\n\nThank you for your generous donation of {amount}. Your support makes our work possible.\n\nSincerely,\nThe Team';
+        template = template.replace(/{firstName}/g, selectedContact.firstName)
+                           .replace(/{lastName}/g, selectedContact.lastName)
+                           .replace(/{amount}/g, `$${amount.toFixed(2)}`)
+                           .replace(/{date}/g, date);
+
+        try {
+          const response = await fetch('/api/emails/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: selectedContact.email,
+              subject: 'Thank You for Your Donation',
+              text: template
+            })
+          });
+          if (response.ok) {
+            emailSent = true;
+          }
+        } catch (err) {
+          console.error('Failed to send automated thank you email:', err);
+        }
+      }
+
+      if (emailSent) {
+        setSuccess(`Donation recorded. Automated thank you email sent to ${selectedContact.email}.`);
+        setTimeout(() => setSuccess(null), 5000);
+      } else if (sendReceipt) {
+        setSuccess(`Donation recorded. Tax receipt marked as sent.`);
+        setTimeout(() => setSuccess(null), 5000);
+      } else {
+        setSuccess("Donation recorded successfully.");
+        setTimeout(() => setSuccess(null), 3000);
       }
 
       setShowDonationModal(false);
       setSelectedContact(null);
       setDonationType('monetary');
-    } catch (error) {
-      console.error("Error adding donation:", error);
-      alert("Failed to record donation.");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'donations');
     }
   };
 
@@ -171,12 +372,12 @@ export function Contacts() {
         createdAt: new Date().toISOString()
       });
       
-      alert(`Successfully logged ${hours} hours for ${selectedContact.firstName}.`);
+      setSuccess(`Successfully logged ${hours} hours for ${selectedContact.firstName}.`);
+      setTimeout(() => setSuccess(null), 3000);
       setShowHoursModal(false);
       setSelectedContact(null);
-    } catch (error) {
-      console.error("Error logging hours:", error);
-      alert("Failed to log hours.");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'volunteerHours');
     }
   };
 
@@ -198,7 +399,7 @@ export function Contacts() {
           </p>
         </div>
         <div className="mt-4 sm:ml-4 sm:mt-0">
-          {(role === 'admin' || role === 'staff') && (
+          {(role === 'admin' || role === 'staff') && activeTab === 'directory' && (
             <button
               onClick={() => setShowAddModal(true)}
               type="button"
@@ -211,111 +412,154 @@ export function Contacts() {
         </div>
       </div>
 
-      {/* Search and Filter */}
-      <div className="flex gap-4 mb-6">
-        <div className="relative flex-grow max-w-lg">
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-            <Search className="h-5 w-5 text-stone-400" aria-hidden="true" />
-          </div>
-          <input
-            type="text"
-            className="block w-full rounded-md border-0 py-1.5 pl-10 text-stone-900 ring-1 ring-inset ring-stone-300 placeholder:text-stone-400 focus:ring-2 focus:ring-inset focus:ring-emerald-600 sm:text-sm sm:leading-6"
-            placeholder="Search contacts..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <select 
-          value={contactTypeFilter}
-          onChange={(e) => setContactTypeFilter(e.target.value)}
-          className="block rounded-md border-0 py-1.5 pl-3 pr-10 text-stone-900 ring-1 ring-inset ring-stone-300 focus:ring-2 focus:ring-emerald-600 sm:text-sm sm:leading-6"
-        >
-          <option>All Types</option>
-          <option>Donor</option>
-          <option>Grantor</option>
-          <option>Sponsor</option>
-          <option>Volunteer</option>
-        </select>
+      <div className="border-b border-stone-200">
+        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+          <button
+            onClick={() => setActiveTab('directory')}
+            className={`${
+              activeTab === 'directory'
+                ? 'border-emerald-500 text-emerald-600'
+                : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-700'
+            } whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium`}
+          >
+            Directory
+          </button>
+          <button
+            onClick={() => setActiveTab('automations')}
+            className={`${
+              activeTab === 'automations'
+                ? 'border-emerald-500 text-emerald-600'
+                : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-700'
+            } whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium`}
+          >
+            Automations & Retention
+          </button>
+        </nav>
       </div>
 
-      {/* Contact List */}
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {loading ? (
-          <p className="text-stone-500">Loading contacts...</p>
-        ) : filteredContacts.length === 0 ? (
-          <p className="text-stone-500">No contacts found. Add one to get started.</p>
-        ) : (
-          filteredContacts.map((contact) => (
-            <div key={contact.id} className="col-span-1 divide-y divide-stone-200 rounded-xl bg-white shadow-sm border border-stone-200">
-              <div className="flex w-full items-center justify-between space-x-6 p-6">
-                <div className="flex-1 truncate">
-                  <div className="flex items-center space-x-3">
-                    <h3 className="truncate text-sm font-medium text-stone-900">
-                      {contact.firstName} {contact.lastName}
-                    </h3>
-                    <span className="inline-flex flex-shrink-0 items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20 capitalize">
-                      {contact.type}
-                    </span>
-                  </div>
-                  <p className="mt-1 truncate text-sm text-stone-500 flex items-center gap-2">
-                    <Mail className="w-4 h-4" /> {contact.email || 'No email'}
-                  </p>
-                  <p className="mt-1 truncate text-sm text-stone-500 flex items-center gap-2">
-                    <Phone className="w-4 h-4" /> {contact.phone || 'No phone'}
-                  </p>
-                  {contact.type === 'volunteer' && (
-                    <div className="mt-3">
-                      <p className="text-xs text-stone-500">
-                        <span className="font-semibold">Skills:</span> {contact.skills?.join(', ') || 'None listed'}
-                      </p>
-                      <p className="text-xs text-stone-500 mt-1">
-                        <span className="font-semibold">Hours:</span> {contact.hoursLogged || 0} hrs
-                      </p>
-                    </div>
-                  )}
-                </div>
+      {error && (
+        <div className="rounded-md bg-red-50 p-4 border border-red-200">
+          <h3 className="text-sm font-medium text-red-800">{error}</h3>
+        </div>
+      )}
+
+      {success && (
+        <div className="rounded-md bg-emerald-50 p-4 border border-emerald-200">
+          <h3 className="text-sm font-medium text-emerald-800">{success}</h3>
+        </div>
+      )}
+
+      {activeTab === 'automations' ? (
+        <DonorAutomations contacts={contacts} />
+      ) : (
+        <>
+          {/* Search and Filter */}
+          <div className="flex gap-4 mb-6">
+            <div className="relative flex-grow max-w-lg">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                <Search className="h-5 w-5 text-stone-400" aria-hidden="true" />
               </div>
-              <div>
-                <div className="-mt-px flex divide-x divide-stone-200">
-                  {contact.type === 'volunteer' ? (
-                    <div className="flex w-0 flex-1">
-                      <button
-                        onClick={() => {
-                          setSelectedContact(contact);
-                          setShowHoursModal(true);
-                        }}
-                        className="relative inline-flex w-0 flex-1 items-center justify-center gap-x-3 rounded-bl-lg border border-transparent py-4 text-sm font-semibold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
-                      >
-                        <Clock className="h-5 w-5 text-stone-400" aria-hidden="true" />
-                        Log Hours
-                      </button>
+              <input
+                type="text"
+                className="block w-full rounded-md border-0 py-1.5 pl-10 text-stone-900 ring-1 ring-inset ring-stone-300 placeholder:text-stone-400 focus:ring-2 focus:ring-inset focus:ring-emerald-600 sm:text-sm sm:leading-6"
+                placeholder="Search contacts..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <select 
+              value={contactTypeFilter}
+              onChange={(e) => setContactTypeFilter(e.target.value)}
+              className="block rounded-md border-0 py-1.5 pl-3 pr-10 text-stone-900 ring-1 ring-inset ring-stone-300 focus:ring-2 focus:ring-emerald-600 sm:text-sm sm:leading-6"
+            >
+              <option>All Types</option>
+              <option>Donor</option>
+              <option>Grantor</option>
+              <option>Sponsor</option>
+              <option>Volunteer</option>
+            </select>
+          </div>
+
+          {/* Contact List */}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {loading ? (
+              <p className="text-stone-500">Loading contacts...</p>
+            ) : filteredContacts.length === 0 ? (
+              <p className="text-stone-500">No contacts found. Add one to get started.</p>
+            ) : (
+              filteredContacts.map((contact) => (
+                <div key={contact.id} className="col-span-1 divide-y divide-stone-200 rounded-xl bg-white shadow-sm border border-stone-200">
+                  <div className="flex w-full items-center justify-between space-x-6 p-6">
+                    <div className="flex-1 truncate">
+                      <div className="flex items-center space-x-3">
+                        <h3 className="truncate text-sm font-medium text-stone-900">
+                          {contact.firstName} {contact.lastName}
+                        </h3>
+                        <span className="inline-flex flex-shrink-0 items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20 capitalize">
+                          {contact.type}
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-sm text-stone-500 flex items-center gap-2">
+                        <Mail className="w-4 h-4" /> {contact.email || 'No email'}
+                      </p>
+                      <p className="mt-1 truncate text-sm text-stone-500 flex items-center gap-2">
+                        <Phone className="w-4 h-4" /> {contact.phone || 'No phone'}
+                      </p>
+                      {contact.type === 'volunteer' && (
+                        <div className="mt-3">
+                          <p className="text-xs text-stone-500">
+                            <span className="font-semibold">Skills:</span> {contact.skills?.join(', ') || 'None listed'}
+                          </p>
+                          <p className="text-xs text-stone-500 mt-1">
+                            <span className="font-semibold">Hours:</span> {contact.hoursLogged || 0} hrs
+                          </p>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex w-0 flex-1">
-                      <div className="relative -mr-px inline-flex w-0 flex-1 items-center justify-center gap-x-3 rounded-bl-lg border border-transparent py-4 text-sm font-semibold text-stone-900">
-                        <DollarSign className="h-5 w-5 text-stone-400" aria-hidden="true" />
-                        ${contact.totalDonated?.toLocaleString() || '0'}
+                  </div>
+                  <div>
+                    <div className="-mt-px flex divide-x divide-stone-200">
+                      {contact.type === 'volunteer' ? (
+                        <div className="flex w-0 flex-1">
+                          <button
+                            onClick={() => {
+                              setSelectedContact(contact);
+                              setShowHoursModal(true);
+                            }}
+                            className="relative inline-flex w-0 flex-1 items-center justify-center gap-x-3 rounded-bl-lg border border-transparent py-4 text-sm font-semibold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
+                          >
+                            <Clock className="h-5 w-5 text-stone-400" aria-hidden="true" />
+                            Log Hours
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex w-0 flex-1">
+                          <div className="relative -mr-px inline-flex w-0 flex-1 items-center justify-center gap-x-3 rounded-bl-lg border border-transparent py-4 text-sm font-semibold text-stone-900">
+                            <DollarSign className="h-5 w-5 text-stone-400" aria-hidden="true" />
+                            ${contact.totalDonated?.toLocaleString() || '0'}
+                          </div>
+                        </div>
+                      )}
+                      <div className="-ml-px flex w-0 flex-1">
+                        <button
+                          onClick={() => {
+                            setSelectedContact(contact);
+                            setShowDonationModal(true);
+                          }}
+                          className="relative inline-flex w-0 flex-1 items-center justify-center gap-x-3 rounded-br-lg border border-transparent py-4 text-sm font-semibold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
+                        >
+                          <Gift className="h-5 w-5" aria-hidden="true" />
+                          {contact.type === 'volunteer' ? 'Record In-Kind' : 'Record Gift'}
+                        </button>
                       </div>
                     </div>
-                  )}
-                  <div className="-ml-px flex w-0 flex-1">
-                    <button
-                      onClick={() => {
-                        setSelectedContact(contact);
-                        setShowDonationModal(true);
-                      }}
-                      className="relative inline-flex w-0 flex-1 items-center justify-center gap-x-3 rounded-br-lg border border-transparent py-4 text-sm font-semibold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
-                    >
-                      <Gift className="h-5 w-5" aria-hidden="true" />
-                      {contact.type === 'volunteer' ? 'Record In-Kind' : 'Record Gift'}
-                    </button>
                   </div>
                 </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
 
       {/* Add Modal */}
       {showAddModal && (

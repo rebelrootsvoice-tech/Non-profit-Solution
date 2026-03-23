@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { useAuth } from './AuthContext';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -47,14 +47,20 @@ export function Reports() {
 
     const donationsUnsub = onSnapshot(query(collection(db, 'donations'), orderBy('date', 'asc')), (snapshot) => {
       setDonations(snapshot.docs.map(doc => doc.data() as Donation));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'donations');
     });
 
     const transactionsUnsub = onSnapshot(query(collection(db, 'transactions'), orderBy('date', 'asc')), (snapshot) => {
       setTransactions(snapshot.docs.map(doc => doc.data() as Transaction));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'transactions');
     });
 
     const volunteerUnsub = onSnapshot(query(collection(db, 'volunteerHours'), orderBy('date', 'asc')), (snapshot) => {
       setVolunteerLogs(snapshot.docs.map(doc => doc.data() as VolunteerLog));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'volunteerHours');
     });
 
     setLoading(false);
